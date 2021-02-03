@@ -78,6 +78,7 @@ while (<POINTINGS>) {
 			    YCOORD => $y,
 			    COMMENT => $comment,
 			    LEVEL1 => "$sot_root/level1/$Y/$M/$D/SP3D",
+			    LEVEL1_UNAPPROVED => "$sot_root/level1_unapproved/$Y/$M/$D/SP3D",
 			    LEVEL2 => "$sot_root/level2/$Y/$M/$D/SP3D",
 			    MINDIR => date2obsdir($Y, $M, $D, $h, $m, $s)
     };
@@ -116,8 +117,10 @@ my @obs = sort keys %obs;
 foreach my $o (@obs) {
     # Get path data
     my $pointdata = $obs{$o};
+    my $unapproved_path = $pointdata->{LEVEL1_UNAPPROVED};
     my $level2_path = $pointdata->{LEVEL2};
     my $mindir = $pointdata->{MINDIR};
+
 
     # Check today's path exists; if not, try tomorrow's path
     if (! -d $level2_path) {
@@ -147,6 +150,12 @@ foreach my $o (@obs) {
 	    next;
 	}
     }
+
+    # Directories exist; build paths
+    my $src_dir = "$level2_path/$datadir";
+    my $pending_dir = "$unapproved_path/$datadir";
+    my $src_fits = "$src_dir/$datadir.fits";
+    my $src_sav = "$src_dir/$datadir.sav";
     
     # Calculate time difference between pointing and observation.
     # Apply thresholds to state of observation lookup.
@@ -159,6 +168,7 @@ foreach my $o (@obs) {
     } elsif ($dt >= 3600) {
 	$dt_str = sprintf "%0.2f h", $dt / 3600.0;
     }
+
     my $state = "OK";
     my $do_copy = 1;
     if ($dt > $dt_skip) {
@@ -166,19 +176,19 @@ foreach my $o (@obs) {
 	$do_copy = 0;
     } elsif ($dt > $dt_warn) {
 	$state = "WARN (late)";
+    } 
+
+    # Timestamps look OK, check data exists
+    if ($do_copy) {
+	if (not (-f $src_fits and -f $src_sav) and -d $pending_dir) {
+	    $state = "ERROR (pending)";
+	    $do_copy = 0;
+	} elsif (not ( -f $src_fits and -f $src_sav)) {
+	    $state = "ERROR (missing)";
+	    $do_copy = 0;
+	} 
     }
     print "$state $o -> $level2_path/$datadir (dt=$dt_str)\n";
-    my $src_dir = "$level2_path/$datadir";
-    my $src_fits = "$src_dir/$datadir.fits";
-    my $src_sav = "$src_dir/$datadir.sav";
-    unless (-f $src_fits) {
-	print "ERROR $src_fits not found, skipping $o\n";
-	next;
-    }
-    unless (-f $src_sav) {
-	print "ERROR $src_sav not found, skipping $o\n";
-	next;
-    }
 
     # If a satisfactory observation has been found, gather it
     if ($do_copy) {
@@ -198,5 +208,7 @@ foreach my $o (@obs) {
 }
 
 # TODO:
-#  - Do the same for level1, level0?
-#  - Cross-check with HCR results?
+#  - Refactor directory search errors/warnings so that all goes to a single output line
+#  - When directories missing, check in level1_unapproved
+#  - Gather data for level1, level0?
+#  - Cross-check with HCR or CSAC DB results?
